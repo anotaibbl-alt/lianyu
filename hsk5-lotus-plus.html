@@ -519,6 +519,7 @@
 .hz-done-btns{display:flex;flex-direction:column;gap:8px;}
 .hz-donebtn{padding:12px;border-radius:14px;border:1.5px solid var(--pink1);background:rgba(255,255,255,0.65);color:var(--pink3);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
 .hz-nav{display:flex;gap:8px;margin-top:12px;}
+.hz-write-full{width:100%;padding:12px;border-radius:14px;border:1.5px solid var(--border);background:var(--card);color:var(--text2);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin:12px 0 10px;}
 .hz-btn{padding:12px;border-radius:14px;border:1.5px solid var(--border);background:var(--card);color:var(--text2);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
 .hz-write{flex:1;background:linear-gradient(135deg,#e8a0c0,#d4789e);color:#fff;border-color:transparent;}
 </style>
@@ -5734,9 +5735,14 @@ function hanziMeaningHit(val,it){
   }
   return false;
 }
-function hanziCheck(){const inp=document.getElementById("hanziInput");if(!inp)return;const it=hanziDayChars(hanziDay)[hanziIdx];const val=inp.value.trim();let ok=false;if(hanziAnsType==="py")ok=val.length>0&&pyNorm(val)===pyNorm(it.cpy);else ok=hanziMeaningHit(val,it);hanziLastCorrect=ok;hanziChecked=true;hanziMarkSeen(it.n);hzGrade(it.ch,ok?GOOD:AGAIN);hanziScore.answered++;if(ok)hanziScore.correct++;renderHanzi();}
-function hanziReveal(){const it=hanziDayChars(hanziDay)[hanziIdx];if(it){hanziMarkSeen(it.n);hzGrade(it.ch,AGAIN);}hanziLastCorrect=null;hanziChecked=true;renderHanzi();}
+function hanziCheck(){const inp=document.getElementById("hanziInput");if(!inp)return;const it=hanziDayChars(hanziDay)[hanziIdx];const val=inp.value.trim();let ok=false;if(hanziAnsType==="py")ok=val.length>0&&pyNorm(val)===pyNorm(it.cpy);else ok=hanziMeaningHit(val,it);hanziLastCorrect=ok;hanziChecked=true;hanziMarkSeen(it.n);hanziScore.answered++;if(ok)hanziScore.correct++;renderHanzi();}
+function hanziReveal(){const it=hanziDayChars(hanziDay)[hanziIdx];if(it)hanziMarkSeen(it.n);hanziLastCorrect=null;hanziChecked=true;renderHanzi();}
 function hanziNextCard(){const n=hanziDayChars(hanziDay).length;hanziChecked=false;hanziLastCorrect=null;if(hanziIdx<n)hanziIdx++;renderHanzi();}
+function hanziGradeCard(good){
+  const it=hanziDayChars(hanziDay)[hanziIdx];
+  if(it)hzGrade(it.ch,good?GOOD:AGAIN);
+  hanziNextCard();
+}
 function hanziWrite(e){if(e)e.stopPropagation();const it=hanziDayChars(hanziDay)[hanziIdx];if(it)hwOpen(it.ch,it.cpy,e);}
 function hanziWriteDay(e){if(e)e.stopPropagation();const dc=hanziDayChars(hanziDay);if(!dc.length)return;hwList=dc.map(x=>({zh:x.ch,py:x.cpy}));hwIdx=0;hwLaunch();}
 function hanziSetView(v){hanziView=v;renderHanzi();window.scrollTo({top:0,behavior:"smooth"});}
@@ -5772,10 +5778,14 @@ function hanziDictCheck(){
   const it=hanziReviewQueue[hanziReviewIdx];const val=inp.value.trim();
   const ok=hanziDictAnswerHit(val,it);
   hanziDictCorrect=ok;hanziDictChecked=true;hanziReviewScore.answered++;if(ok)hanziReviewScore.correct++;
-  if(it.isChar)hzGrade(it.zh,ok?GOOD:AGAIN);
   renderHanzi();
 }
-function hanziDictReveal(){const it=hanziReviewQueue[hanziReviewIdx];hanziDictChecked=true;hanziDictCorrect=null;hanziReviewScore.answered++;if(it&&it.isChar)hzGrade(it.zh,AGAIN);renderHanzi();}
+function hanziDictReveal(){const it=hanziReviewQueue[hanziReviewIdx];hanziDictChecked=true;hanziDictCorrect=null;hanziReviewScore.answered++;renderHanzi();}
+function hanziDictGrade(good){
+  const it=hanziReviewQueue[hanziReviewIdx];
+  if(it&&it.isChar)hzGrade(it.zh,good?GOOD:AGAIN);
+  hanziDictNext();
+}
 function hanziDictNext(){
   hanziReviewIdx++;hanziDictChecked=false;hanziDictCorrect=null;renderHanzi();
   const it=hanziReviewQueue[hanziReviewIdx];if(it)setTimeout(()=>speak(it.zh,"zh-CN"),200);
@@ -5849,7 +5859,7 @@ function renderHanzi(){
   }
   const rel=it.rel.map(w=>`<div class="hz-word"><span class="hz-w-zh">${w.w}</span><span class="hz-w-mid"><span class="hz-w-py">${w.py}</span><span class="hz-w-th">${w.th}</span></span><span class="hz-w-pos">${w.pos}</span><button class="hz-snd sm" onclick="hanziSpeak('${w.w}',event)">🔊</button></div>`).join("");
   const banner=hanziLastCorrect===null?"":`<div class="tr-match ${hanziLastCorrect?"tr-m-ok":"tr-m-low"}">${hanziLastCorrect?"🌸 ถูกต้อง!":"💭 ยังไม่ตรง — ดูเฉลย"}</div>`;
-  area.innerHTML=head+`<div class="hz-card flipped">${badge}${banner}<div class="hz-char-sm">${it.ch} <span class="hz-py">${it.cpy}</span> <button class="hz-snd sm" onclick="hanziSpeak('${it.ch}',event)">🔊</button></div><div class="hz-en">${it.en}</div><div class="hz-words">${rel}</div><div class="hz-ex"><div class="hz-ex-zh">${it.exzh} <button class="hz-snd sm" onclick="hanziSpeak('${it.exzh}',event)">🔊</button></div><div class="hz-ex-th">${it.exth}</div></div><div class="hz-mem">💡 ${it.mem}</div></div><div class="hz-nav"><button class="hz-btn" onclick="hanziWrite(event)">✍️ เขียน</button><button class="hz-btn hz-write" onclick="hanziNextCard()">ถัดไป ▶</button></div>`;
+  area.innerHTML=head+`<div class="hz-card flipped">${badge}${banner}<div class="hz-char-sm">${it.ch} <span class="hz-py">${it.cpy}</span> <button class="hz-snd sm" onclick="hanziSpeak('${it.ch}',event)">🔊</button></div><div class="hz-en">${it.en}</div><div class="hz-words">${rel}</div><div class="hz-ex"><div class="hz-ex-zh">${it.exzh} <button class="hz-snd sm" onclick="hanziSpeak('${it.exzh}',event)">🔊</button></div><div class="hz-ex-th">${it.exth}</div></div><div class="hz-mem">💡 ${it.mem}</div></div><button class="hz-btn hz-write-full" onclick="hanziWrite(event)">✍️ เขียน</button><div class="srs-btns srs-btns-2"><button class="srs-btn srs-again" onclick="hanziGradeCard(false)"><span class="srs-label">🔁 จำไม่ได้</span><span class="srs-interval">ทวนซ้ำ · ${getIL(hzKey(it.ch),0)}</span></button><button class="srs-btn srs-good" onclick="hanziGradeCard(true)"><span class="srs-label">✅ จำได้</span><span class="srs-interval">${getIL(hzKey(it.ch),2)}</span></button></div>`;
 }
 function renderHanziDict(area){
   const q=hanziReviewQueue;const back=`<button class="hz-review-back" onclick="hanziDictExit()">← กลับ</button>`;
@@ -5865,7 +5875,10 @@ function renderHanziDict(area){
     return;
   }
   const banner=hanziDictCorrect===null?"":`<div class="tr-match ${hanziDictCorrect?"tr-m-ok":"tr-m-low"}">${hanziDictCorrect?"🌸 ถูกต้อง!":"💭 ยังไม่ตรง"}</div>`;
-  area.innerHTML=`${back}<div class="hz-card hz-dict-card flipped">${prog}${banner}<div class="hz-char-sm">${it.zh} <span class="hz-py">${it.py}</span> <button class="hz-snd sm" onclick="hanziDictSpeak(event)">🔊</button></div><div class="hz-en">${it.th}</div></div><div class="hz-nav"><button class="hz-btn hz-write" onclick="hanziDictNext()">ถัดไป ▶</button></div>`;
+  const nav=it.isChar
+    ? `<div class="srs-btns srs-btns-2"><button class="srs-btn srs-again" onclick="hanziDictGrade(false)"><span class="srs-label">🔁 จำไม่ได้</span><span class="srs-interval">ทวนซ้ำ · ${getIL(hzKey(it.zh),0)}</span></button><button class="srs-btn srs-good" onclick="hanziDictGrade(true)"><span class="srs-label">✅ จำได้</span><span class="srs-interval">${getIL(hzKey(it.zh),2)}</span></button></div>`
+    : `<div class="hz-nav"><button class="hz-btn hz-write" onclick="hanziDictNext()">ถัดไป ▶</button></div>`;
+  area.innerHTML=`${back}<div class="hz-card hz-dict-card flipped">${prog}${banner}<div class="hz-char-sm">${it.zh} <span class="hz-py">${it.py}</span> <button class="hz-snd sm" onclick="hanziDictSpeak(event)">🔊</button></div><div class="hz-en">${it.th}</div></div>${nav}`;
 }
 function renderHanziSwipe(area){
   const q=hanziReviewQueue;const back=`<button class="hz-review-back" onclick="hanziSwipeExit()">← กลับ</button>`;
