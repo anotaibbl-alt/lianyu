@@ -233,6 +233,7 @@
   .list-en { font-size:13px; color:var(--pink3); font-weight:600; }
   .list-th { font-size:12px; color:var(--text3); }
   .list-due { font-size:10px; padding:3px 8px; border-radius:10px; border:1px solid; white-space:nowrap; }
+.hz-bloom{background:rgba(232,160,192,.28)!important;color:var(--pink3)!important;border-color:var(--pink1)!important;font-weight:700;}
   .due-new  { background:rgba(220,170,200,0.2); color:#a06080; border-color:rgba(180,130,160,0.3); }
   .due-soon { background:rgba(212,120,158,0.15); color:var(--pink3); border-color:var(--pink1); }
   .due-later{ background:rgba(245,230,240,0.5); color:var(--text3); border-color:var(--border); }
@@ -5592,7 +5593,7 @@ function buildSession(cat){
 function getStats(cat){const now=Date.now();let cards=poolFor(cat);let n=0,l=0,r=0,done=0;cards.forEach(v=>{const c=getCard(v.zh);if(c.reps===0)n++;else if(c.due<=now)r++;else if(c.interval<=3)l++;else done++;});return{newC:n,learn:l,review:r,done,total:cards.length};}
 
 const categories=["ทั้งหมด",...[...new Set(vocab.map(v=>v.cat))].sort((a,b)=>a.replace(/^\S+\s*/,"").localeCompare(b.replace(/^\S+\s*/,""),"th"))];
-let currentCat="ทั้งหมด",flipped=false,dueQueue=[],currentCard=null,sessionDone=0,mode="plan",inputChecked=false,inputCorrect=false,dayFilter=null,catsOpen=false,deckQuery="",deckPage=0,hanziDay=1,hanziIdx=0,hanziFlipped=false;
+let currentCat="ทั้งหมด",flipped=false,dueQueue=[],currentCard=null,sessionDone=0,mode="plan",inputChecked=false,inputCorrect=false,dayFilter=null,catsOpen=false,deckQuery="",deckPage=0,hanziDay=1,hanziFlipped=false,hanziQueue=null;
 
 /* ---------- UI builders ---------- */
 function buildCats(){document.getElementById("catFilter").innerHTML=categories.map(c=>`<button class="cat-btn ${c===currentCat?'active':''}" onclick="setCat('${c}')">${c}</button>`).join("");}
@@ -5711,6 +5712,14 @@ function hanziForgottenReview(){
   renderHanzi();window.scrollTo({top:0,behavior:"smooth"});
   const it0=hanziReviewQueue[0];if(it0)setTimeout(()=>speak(it0.zh,"zh-CN"),200);
 }
+function hzStateBadge(ch){
+  const now=Date.now();const c=hzCard(ch);let dl,dc;
+  if(c.reps===0){dl="🆕 ใหม่";dc="due-new";}
+  else if(c.due<=now){dl="🥀 ถึงเวลา";dc="due-soon";}
+  else if(c.interval>=7){dl="🌸 บาน";dc="due-later hz-bloom";}
+  else{dl=`${Math.ceil((c.due-now)/86400000)} วัน`;dc="due-later";}
+  return `<span class="list-due ${dc}">${dl}</span>`;
+}
 function hanziSeen(){try{return JSON.parse(localStorage.getItem("hsk5_hanzi_seen")||"{}");}catch(e){return {};}}
 function hanziMarkSeen(n){try{const s=hanziSeen();s[n]=1;localStorage.setItem("hsk5_hanzi_seen",JSON.stringify(s));}catch(e){}}
 function hanziDayChars(d){return HANZI.filter(x=>x.day===d);}
@@ -5718,8 +5727,8 @@ let hanziAnsType="py",hanziChecked=false,hanziLastCorrect=null,hanziScore={corre
 let hanziReviewMode=null,hanziReviewQueue=[],hanziReviewIdx=0,hanziReviewScore={correct:0,answered:0};
 let hanziDictChecked=false,hanziDictCorrect=null;
 let hanziSwipeFlipped=false,hanziDragging=false,hanziDragStartX=0,hanziDragEl=null;
-function hanziSetDay(d){hanziDay=d;hanziIdx=0;hanziChecked=false;hanziFlipped=false;hanziLastCorrect=null;hanziScore={correct:0,answered:0};renderHanzi();window.scrollTo({top:0,behavior:"smooth"});}
-function hanziReview(){hanziIdx=0;hanziChecked=false;hanziLastCorrect=null;hanziScore={correct:0,answered:0};renderHanzi();window.scrollTo({top:0,behavior:"smooth"});}
+function hanziSetDay(d){hanziDay=d;hanziQueue=hanziDayChars(d).slice();hanziChecked=false;hanziFlipped=false;hanziLastCorrect=null;hanziScore={correct:0,answered:0};renderHanzi();window.scrollTo({top:0,behavior:"smooth"});}
+function hanziReview(){hanziQueue=hanziDayChars(hanziDay).slice();hanziChecked=false;hanziLastCorrect=null;hanziScore={correct:0,answered:0};renderHanzi();window.scrollTo({top:0,behavior:"smooth"});}
 function hanziSetAns(t){hanziAnsType=t;renderHanzi();}
 function hanziNormPhrase(s){
   return (s||"").toLowerCase().replace(/[()]/g,"").replace(/^to\s+/,"").replace(/[^a-z0-9\u0E00-\u0E7F\s]/g,"").replace(/\s+/g," ").trim();
@@ -5743,15 +5752,18 @@ function hanziMeaningHit(val,it){
   }
   return false;
 }
-function hanziCheck(){const inp=document.getElementById("hanziInput");if(!inp)return;const it=hanziDayChars(hanziDay)[hanziIdx];const val=inp.value.trim();let ok=false;if(hanziAnsType==="py")ok=val.length>0&&pyNorm(val)===pyNorm(it.cpy);else ok=hanziMeaningHit(val,it);hanziLastCorrect=ok;hanziChecked=true;hanziMarkSeen(it.n);hanziScore.answered++;if(ok)hanziScore.correct++;renderHanzi();}
-function hanziReveal(){const it=hanziDayChars(hanziDay)[hanziIdx];if(it)hanziMarkSeen(it.n);hanziLastCorrect=null;hanziChecked=true;renderHanzi();}
-function hanziNextCard(){const n=hanziDayChars(hanziDay).length;hanziChecked=false;hanziLastCorrect=null;if(hanziIdx<n)hanziIdx++;renderHanzi();}
+function hanziCheck(){const inp=document.getElementById("hanziInput");if(!inp)return;const it=hanziQueue[0];const val=inp.value.trim();let ok=false;if(hanziAnsType==="py")ok=val.length>0&&pyNorm(val)===pyNorm(it.cpy);else ok=hanziMeaningHit(val,it);hanziLastCorrect=ok;hanziChecked=true;hanziMarkSeen(it.n);hanziScore.answered++;if(ok)hanziScore.correct++;renderHanzi();}
+function hanziReveal(){const it=hanziQueue[0];if(it)hanziMarkSeen(it.n);hanziLastCorrect=null;hanziChecked=true;renderHanzi();}
 function hanziGradeCard(good){
-  const it=hanziDayChars(hanziDay)[hanziIdx];
-  if(it)hzGrade(it.ch,good?GOOD:AGAIN);
-  hanziNextCard();
+  const it=hanziQueue[0];
+  if(it){
+    hzGrade(it.ch,good?GOOD:AGAIN);
+    if(good)hanziQueue.shift();else hanziQueue.push(hanziQueue.shift());
+  }
+  hanziChecked=false;hanziLastCorrect=null;
+  renderHanzi();
 }
-function hanziWrite(e){if(e)e.stopPropagation();const it=hanziDayChars(hanziDay)[hanziIdx];if(it)hwOpen(it.ch,it.cpy,e);}
+function hanziWrite(e){if(e)e.stopPropagation();const it=hanziQueue[0];if(it)hwOpen(it.ch,it.cpy,e);}
 function hanziWriteDay(e){if(e)e.stopPropagation();const dc=hanziDayChars(hanziDay);if(!dc.length)return;hwList=dc.map(x=>({zh:x.ch,py:x.cpy}));hwIdx=0;hwLaunch();}
 function hanziSetView(v){hanziView=v;renderHanzi();window.scrollTo({top:0,behavior:"smooth"});}
 function hanziSpeak(t,e){if(e)e.stopPropagation();speak(t,"zh-CN");}
@@ -5848,17 +5860,18 @@ function renderHanzi(){
     let html=head+`<div class="hz-list">`;
     dc.forEach(it=>{
       const words=it.rel.map(w=>`<span class="hz-li-hw">${w.w}</span> <span class="hz-li-py">${w.py}</span> ${w.th}`).join(" · ");
-      html+=`<div class="hz-li"><div class="hz-li-top"><div class="hz-li-char">${it.ch}<span class="hz-li-cpy">${it.cpy}</span></div><div class="hz-li-main"><div class="hz-li-words">${words}</div><div class="hz-li-en">${it.en}</div></div><button class="hz-snd" onclick="hanziSpeak('${it.ch}',event)">🔊</button></div><div class="hz-li-ex">${it.exzh}<span class="hz-li-exth">${it.exth}</span></div><div class="hz-li-mem">💡 ${it.mem}</div></div>`;
+      html+=`<div class="hz-li"><div class="hz-li-top"><div class="hz-li-char">${it.ch}<span class="hz-li-cpy">${it.cpy}</span></div><div class="hz-li-main"><div class="hz-li-words">${words}</div><div class="hz-li-en">${it.en}</div></div><button class="hz-snd" onclick="hanziSpeak('${it.ch}',event)">🔊</button>${hzStateBadge(it.ch)}</div><div class="hz-li-ex">${it.exzh}<span class="hz-li-exth">${it.exth}</span></div><div class="hz-li-mem">💡 ${it.mem}</div></div>`;
     });
     html+=`</div><div class="hz-done-btns"><button class="hz-donebtn" onclick="hanziMarkDay()">✅ ทำเครื่องหมายว่าทบทวนวันนี้แล้ว</button><button class="hz-donebtn" onclick="hanziDictStart()">🎧 ฟังคำบอก (听写)</button><button class="hz-donebtn" onclick="hanziSwipeStart()">🃏 ปัดทบทวนคำ</button><button class="hz-donebtn" onclick="hanziWriteDay(event)">✍️ ฝึกเขียนทั้งวัน (${dc.length} ตัว)</button></div>`;
     area.innerHTML=html;return;
   }
-  if(hanziIdx>=dc.length){
+  if(hanziQueue===null)hanziQueue=hanziDayChars(hanziDay).slice();
+  if(hanziQueue.length===0){
     area.innerHTML=head+`<div class="hz-done"><div class="hz-done-emoji">🪷</div><div class="hz-done-title">จบวันที่ ${hanziDay}!</div><div class="hz-done-sub">อ่านถูก ${hanziScore.correct}/${hanziScore.answered} ตัว</div><div class="hz-done-btns"><button class="hz-donebtn" onclick="hanziReview()">🔁 ทบทวนวันนี้อีกครั้ง</button><button class="hz-donebtn" onclick="hanziDictStart()">🎧 ฟังคำบอก (听写)</button><button class="hz-donebtn" onclick="hanziSwipeStart()">🃏 ปัดทบทวนคำ</button><button class="hz-donebtn" onclick="hanziSetView('list')">📋 ดูแบบรายการ</button><button class="hz-donebtn" onclick="hanziWriteDay(event)">✍️ ฝึกเขียนทั้งวัน (${dc.length} ตัว)</button>`+(hanziDay<25?`<button class="hz-donebtn" onclick="hanziSetDay(${hanziDay+1})">ไปวันที่ ${hanziDay+1} ▶</button>`:"")+`</div></div>`;
     return;
   }
-  const it=dc[hanziIdx];
-  const badge=`<div class="hz-badge">ตัวที่ ${hanziIdx+1}/${dc.length} · 🌸 ${hanziScore.correct}</div>`;
+  const it=hanziQueue[0];
+  const badge=`<div class="hz-badge">เหลืออีก ${hanziQueue.length} ตัว · 🌸 ${hanziScore.correct} ${hzStateBadge(it.ch)}</div>`;
   if(!hanziChecked){
     const tt=[["py","พินอิน (การอ่าน)"],["mean","ความหมาย"]].map(kv=>`<button class="tr-dir ${hanziAnsType===kv[0]?"active":""}" onclick="hanziSetAns('${kv[0]}')">${kv[1]}</button>`).join("");
     area.innerHTML=head+`<div class="hz-card">${badge}<div class="hz-char">${it.ch}</div><button class="hz-snd big" onclick="hanziSpeak('${it.ch}',event)">🔊 ฟังเสียง</button><div class="ln-dicttype">${tt}</div><div class="tr-inwrap"><input class="tr-input" id="hanziInput" placeholder="${hanziAnsType==="py"?"พิมพ์พินอิน (ไม่ต้องมีวรรณยุกต์)":"พิมพ์ความหมาย (ไทยหรืออังกฤษก็ได้)"}" onkeydown="if(event.key==='Enter')hanziCheck()" autocomplete="off" autocorrect="off" spellcheck="false"/></div><button class="tr-reveal" onclick="hanziCheck()">✓ ตรวจ</button><button class="tr-skip" onclick="hanziReveal()">ข้ามไปดูเฉลย</button></div>`;
