@@ -5595,6 +5595,7 @@ function getStats(cat){const now=Date.now();let cards=poolFor(cat);let n=0,l=0,r
 
 const categories=["ทั้งหมด",...[...new Set(vocab.map(v=>v.cat))].sort((a,b)=>a.replace(/^\S+\s*/,"").localeCompare(b.replace(/^\S+\s*/,""),"th"))];
 let currentCat="ทั้งหมด",flipped=false,dueQueue=[],currentCard=null,sessionDone=0,mode="plan",inputChecked=false,inputCorrect=false,dayFilter=null,catsOpen=false,deckQuery="",deckPage=0,hanziDay=1,hanziFlipped=false,hanziQueue=null;
+let vocabSwipeMode=false,vocabSwipeQueue=[],vocabSwipeFlipped=false,vocabSwipeScore={correct:0,answered:0},vsDragging=false,vsDragStartX=0,vsDragEl=null;
 
 /* ---------- UI builders ---------- */
 function buildCats(){document.getElementById("catFilter").innerHTML=categories.map(c=>`<button class="cat-btn ${c===currentCat?'active':''}" onclick="setCat('${c}')">${c}</button>`).join("");}
@@ -5637,7 +5638,7 @@ function render(){
   const pct=st.total>0?(st.done/st.total)*100:0;
   document.getElementById("progressFill").style.width=pct+"%";
   document.getElementById("progressText").textContent=mode!=="list"&&currentCard?`${dueQueue.indexOf(currentCard)+1} / ${dueQueue.length} การ์ด`:`${st.total} คำ`;
-  const inPlan=(mode==="plan"||mode==="trans"||mode==="listen"||mode==="stats"||mode==="hanzi");
+  const inPlan=(mode==="plan"||mode==="trans"||mode==="listen"||mode==="stats"||mode==="hanzi"||vocabSwipeMode);
   const _ct=document.getElementById("catToggle");
   const _cf=document.getElementById("catFilter");
   _ct.style.display=inPlan?"none":"block";
@@ -5901,7 +5902,7 @@ function renderHanziDict(area){
     return;
   }
   const it=q[0];
-  const prog=`<div class="hz-badge">听写 เหลืออีก ${q.length} คำ · 🌸 ${hanziReviewScore.correct}</div>`;
+  const prog=`<div class="hz-badge">听写 เหลืออีก ${q.length} คำ · 🌸 ${hanziReviewScore.correct} ${it.isChar?hzStateBadge(it.zh):""}</div>`;
   if(!hanziDictChecked){
     area.innerHTML=`${back}<div class="hz-card hz-dict-card">${prog}<button class="hz-snd big" onclick="hanziDictSpeak(event)">🔊 ฟังอีกครั้ง</button><div class="hz-dict-hint">ฟังเสียงแล้วพิมพ์พินอิน หรือความหมาย (ไทย/อังกฤษ) ก็ได้</div><div class="tr-inwrap"><input class="tr-input" id="hanziDictInput" placeholder="พิมพ์พินอิน..." onkeydown="if(event.key==='Enter')hanziDictCheck()" autocomplete="off" autocorrect="off" spellcheck="false"/></div><button class="tr-reveal" onclick="hanziDictCheck()">✓ ตรวจ</button><button class="tr-skip" onclick="hanziDictReveal()">ข้ามไปดูเฉลย</button></div>`;
     setTimeout(()=>{const el=document.getElementById("hanziDictInput");if(el)el.focus();},60);
@@ -5920,7 +5921,7 @@ function renderHanziSwipe(area){
     return;
   }
   const it=q[0];
-  const prog=`<div class="hz-badge">🃏 เหลืออีก ${q.length} คำ · 🌸 ${hanziReviewScore.correct}</div>`;
+  const prog=`<div class="hz-badge">🃏 เหลืออีก ${q.length} คำ · 🌸 ${hanziReviewScore.correct} ${it.isChar?hzStateBadge(it.zh):""}</div>`;
   if(!hanziSwipeFlipped){
     hanziDragging=false;hanziDragEl=null;
     area.innerHTML=`${back}${prog}<div class="hz-swipe-wrap"><div class="hz-swipe-card" onclick="hanziSwipeFlip()"><div class="hz-char">${it.zh}</div><div class="hz-swipe-hint">แตะเพื่อดูความหมาย</div></div></div>`;
@@ -5935,11 +5936,55 @@ function wiltBanner(){
   if(fade===0)return "";
   return `<div class="wilt-banner" onclick="studyForgotten()"><div class="wilt-icon">🥀</div><div class="wilt-text"><b>${fade} คำกำลังจะลืม</b><br><span>แตะเพื่อทบทวนตอนนี้ ก่อนดอกบัวเหี่ยว</span></div><div class="wilt-arrow">▶</div></div>`;
 }
+function vocabSwipePool(maxDay){const PER=settings.newPerDay||10;const end=Math.min((maxDay||30)*PER,vocab.length);return vocab.slice(0,end);}
+function vocabSwipeStart(maxDay){
+  mode="srs";
+  vocabSwipeQueue=vocabSwipePool(maxDay||30).slice().sort(()=>Math.random()-0.5);
+  vocabSwipeFlipped=false;vocabSwipeScore={correct:0,answered:0};vocabSwipeMode=true;
+  render();window.scrollTo({top:0,behavior:"smooth"});
+}
+function vocabSwipeExit(){vocabSwipeMode=false;render();}
+function vocabSwipeFlip(){vocabSwipeFlipped=true;renderSRS();}
+function vocabSwipeGrade(good){
+  const it=vocabSwipeQueue[0];
+  if(it){updateCard(it.zh,good?GOOD:AGAIN);if(good)vocabSwipeQueue.shift();else vocabSwipeQueue.push(vocabSwipeQueue.shift());}
+  vocabSwipeFlipped=false;renderSRS();
+}
+function vsStartDrag(e){const el=e.currentTarget;if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(err){}vsDragging=true;vsDragStartX=e.clientX;vsDragEl=el;el.style.transition="none";}
+function vsMoveDrag(e){if(!vsDragging||!vsDragEl)return;const dx=e.clientX-vsDragStartX;vsDragEl.style.transform=`translateX(${dx}px) rotate(${dx/18}deg)`;vsDragEl.style.opacity=String(Math.max(0.4,1-Math.abs(dx)/300));}
+function vsEndDrag(e){
+  if(!vsDragging||!vsDragEl)return;vsDragging=false;
+  const dx=e.clientX-vsDragStartX;const el=vsDragEl;vsDragEl=null;
+  el.style.transition="transform .25s ease, opacity .25s ease";
+  if(dx>70){el.style.transform="translateX(500px) rotate(20deg)";el.style.opacity="0";setTimeout(()=>vocabSwipeGrade(true),180);}
+  else if(dx<-70){el.style.transform="translateX(-500px) rotate(-20deg)";el.style.opacity="0";setTimeout(()=>vocabSwipeGrade(false),180);}
+  else{el.style.transform="translateX(0) rotate(0)";el.style.opacity="1";}
+}
+function renderVocabSwipe(){
+  const area=document.getElementById("mainArea");
+  const q=vocabSwipeQueue;
+  const back=`<button class="hz-review-back" onclick="vocabSwipeExit()">← กลับ</button>`;
+  if(q.length===0){
+    area.innerHTML=`${back}<div class="hz-done"><div class="hz-done-emoji">🃏</div><div class="hz-done-title">ปัดทบทวนจบแล้ว!</div><div class="hz-done-sub">จำได้ ${vocabSwipeScore.correct}/${vocabSwipeScore.answered} คำ</div><div class="hz-done-btns"><button class="hz-donebtn" onclick="vocabSwipeStart(30)">🔁 ทำอีกรอบ</button><button class="hz-donebtn" onclick="vocabSwipeExit()">🔙 กลับไปหน้าเรียน</button></div></div>`;
+    return;
+  }
+  const it=q[0];
+  const prog=`<div class="hz-badge">🃏 เหลืออีก ${q.length} คำ (Day 1-30) · 🌸 ${vocabSwipeScore.correct}</div>`;
+  vsDragging=false;vsDragEl=null;
+  if(!vocabSwipeFlipped){
+    area.innerHTML=`${back}${prog}<div class="hz-swipe-wrap"><div class="hz-swipe-card" onclick="vocabSwipeFlip()"><div class="card-emoji">${it.emoji||""}</div><div class="hz-char">${it.zh}</div><div class="card-pinyin">${it.py}</div><div class="hz-swipe-hint">แตะเพื่อดูความหมาย</div></div></div>`;
+    return;
+  }
+  const cn=cnex[it.zh];
+  const exBlock=(cn?`<div class="card-cn-ex">${cn}</div>`:"")+`<div class="card-example" style="margin-top:6px">"${it.ex||""}"</div>`;
+  area.innerHTML=`${back}${prog}<div class="hz-swipe-wrap"><div class="hz-swipe-card flipped" onpointerdown="vsStartDrag(event)" onpointermove="vsMoveDrag(event)" onpointerup="vsEndDrag(event)" onpointercancel="vsEndDrag(event)"><div class="hz-char-sm">${it.zh} <span class="hz-py">${it.py}</span></div><div class="card-english">${it.en}</div><div class="card-thai">${it.th}</div>${exBlock}<div class="hz-swipe-hint">ปัดซ้าย=จำไม่ได้ (วนมาใหม่) · ปัดขวา=จำได้</div></div></div><div class="hz-swipe-btns"><button class="hz-swipe-no" onclick="vocabSwipeGrade(false)">😓 จำไม่ได้</button><button class="hz-swipe-yes" onclick="vocabSwipeGrade(true)">😊 จำได้</button></div>`;
+}
 function renderSRS(){
+  if(vocabSwipeMode)return renderVocabSwipe();
   const dayBanner=dayFilter?`<div class="day-banner">📅 กำลังทบทวนวันที่ ${dayFilter} <button onclick="exitDay()">ออก ✕</button></div>`:"";
   if(!currentCard){
     const d=ensureToday();
-    document.getElementById("mainArea").innerHTML=dayBanner+`<div class="done-screen"><div class="done-emoji">🪷</div><div class="done-title">สวยงามมากเลย!</div><div class="done-sub">ทำได้ดีมากนะ 💕</div>${doneQuote()}<div class="done-stats"><div class="done-stat"><div class="done-stat-n">${sessionDone}</div><div class="done-stat-l">รอบนี้</div></div><div class="done-stat"><div class="done-stat-n">${d.streak}</div><div class="done-stat-l">🔥 streak</div></div><div class="done-stat"><div class="done-stat-n">${getStats(currentCat).done}</div><div class="done-stat-l">เรียนแล้วทั้งหมด</div></div></div>${dayFilter?`<div class="done-title2">🪷 ทบทวนความจำ · ต่อยอดคำวันที่ ${dayFilter}</div><div class="cont-btns"><button class="cont-btn" onclick="listenStartWords(${dayFilter})">🎧 ฟังคำวันนี้</button><button class="cont-btn" onclick="hwOpenDay(${dayFilter})">✍️ เขียนคำวันนี้</button><button class="cont-btn" onclick="setMode(\'trans\')">🌐 ฝึกแปลประโยค</button><button class="cont-btn" onclick="studyDay(${dayFilter})">🔁 ทบทวนอีกครั้ง</button></div><button class="reset-btn" onclick="setMode(\'plan\')">🪷 ไปสวนความจำ</button>`:`<div class="cont-btns"><button class="cont-btn" onclick="setMode(\'listen\')">🎧 ฝึกฟัง</button><button class="cont-btn" onclick="setMode(\'trans\')">🌐 ฝึกแปล</button></div><button class="reset-btn" onclick="setMode(\'plan\')">🪷 ไปสวนความจำ</button>`}</div>`;
+    document.getElementById("mainArea").innerHTML=dayBanner+`<div class="done-screen"><div class="done-emoji">🪷</div><div class="done-title">สวยงามมากเลย!</div><div class="done-sub">ทำได้ดีมากนะ 💕</div>${doneQuote()}<div class="done-stats"><div class="done-stat"><div class="done-stat-n">${sessionDone}</div><div class="done-stat-l">รอบนี้</div></div><div class="done-stat"><div class="done-stat-n">${d.streak}</div><div class="done-stat-l">🔥 streak</div></div><div class="done-stat"><div class="done-stat-n">${getStats(currentCat).done}</div><div class="done-stat-l">เรียนแล้วทั้งหมด</div></div></div>${dayFilter?`<div class="done-title2">🪷 ทบทวนความจำ · ต่อยอดคำวันที่ ${dayFilter}</div><div class="cont-btns"><button class="cont-btn" onclick="listenStartWords(${dayFilter})">🎧 ฟังคำวันนี้</button><button class="cont-btn" onclick="hwOpenDay(${dayFilter})">✍️ เขียนคำวันนี้</button><button class="cont-btn" onclick="setMode(\'trans\')">🌐 ฝึกแปลประโยค</button><button class="cont-btn" onclick="studyDay(${dayFilter})">🔁 ทบทวนอีกครั้ง</button><button class=\'cont-btn\' onclick=\"vocabSwipeStart(30)\">🃏 ปัดทบทวนคำ</button></div><button class="reset-btn" onclick="setMode(\'plan\')">🪷 ไปสวนความจำ</button>`:`<div class="cont-btns"><button class="cont-btn" onclick="setMode(\'listen\')">🎧 ฝึกฟัง</button><button class="cont-btn" onclick="setMode(\'trans\')">🌐 ฝึกแปล</button><button class=\'cont-btn\' onclick=\"vocabSwipeStart(30)\">🃏 ปัดทบทวนคำ</button></div><button class="reset-btn" onclick="setMode(\'plan\')">🪷 ไปสวนความจำ</button>`}</div>`;
     return;
   }
   const w=currentCard;const c=getCard(w.zh);
