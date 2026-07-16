@@ -580,6 +580,7 @@
       <button class="dir-btn" id="dirEn" onclick="setDirection('en2zh')">ความหมาย→中</button>
     </div>
   </div>
+  <div id="cloudSyncBox"></div>
   <div class="set-row">
     <span class="set-label">💾 สำรองความคืบหน้า</span>
     <div class="dir-btns">
@@ -647,7 +648,101 @@
 
 <div class="footer">🪷 บันทึกอัตโนมัติ · Space = ดูเฉลย · 1 = จำไม่ได้ · 2 = จำได้<br>✍️ ฝึกเขียนได้บนการ์ดทุกใบเมื่อเปิดเฉลย<br><span style="opacity:0.7">3 เดือนเต็ม · 900 คำ</span></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
+const firebaseConfig = {
+  apiKey: "AIzaSyCuxd2yD1kGBjRapp4fzyeu0tWfpWUDgag",
+  authDomain: "lianyu-ef32e.firebaseapp.com",
+  projectId: "lianyu-ef32e",
+  storageBucket: "lianyu-ef32e.firebasestorage.app",
+  messagingSenderId: "373470364837",
+  appId: "1:373470364837:web:37190b872f278b6d4ff94c"
+};
+let cloudUser=null,cloudDb=null,cloudReady=false,_cloudPushTimer=null,_cloudPulling=false;
+function cloudEnabled(){return !!(firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf("YOUR_")!==0);}
+function cloudInit(){
+  if(!cloudEnabled())return;
+  try{
+    firebase.initializeApp(firebaseConfig);
+    cloudDb=firebase.firestore();
+    firebase.auth().onAuthStateChanged(u=>{
+      cloudUser=u;cloudReady=true;
+      if(u)cloudPullAndMerge();
+      syncCloudUI();
+    });
+  }catch(e){console.warn("cloud init failed",e);}
+}
+function cloudSignIn(){
+  if(!cloudEnabled())return;
+  const provider=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider).catch(e=>{alert("เข้าสู่ระบบไม่สำเร็จ: "+e.message);});
+}
+function cloudSignOut(){firebase.auth().signOut();}
+function mergeSRSMaps(local,cloud){
+  local=local||{};cloud=cloud||{};
+  const merged={};const keys=new Set([...Object.keys(local),...Object.keys(cloud)]);
+  keys.forEach(k=>{
+    const l=local[k],c=cloud[k];
+    if(!l){merged[k]=c;return;}
+    if(!c){merged[k]=l;return;}
+    const lLast=l.last||0,cLast=c.last||0;
+    merged[k]=lLast>=cLast?l:c;
+  });
+  return merged;
+}
+function mergeDaily(local,cloud){
+  if(!cloud)return local;
+  if(!local)return cloud;
+  const lD=local.lastActive||"",cD=cloud.lastActive||"";
+  return cD>lD?cloud:local;
+}
+function cloudPullAndMerge(){
+  if(!cloudUser||!cloudDb)return Promise.resolve();
+  _cloudPulling=true;
+  return cloudDb.collection("users").doc(cloudUser.uid).get().then(doc=>{
+    if(doc.exists){
+      const data=doc.data();
+      const localSRS=loadSRS(),localDaily=loadDaily();
+      const mergedSRS=mergeSRSMaps(localSRS,data.srs||{});
+      const mergedDaily=mergeDaily(localDaily,data.daily||{});
+      localStorage.setItem("hsk5_lotus",JSON.stringify(mergedSRS));
+      localStorage.setItem("hsk5_lotus_daily",JSON.stringify(mergedDaily));
+      try{initQueue();render();}catch(e){}
+    }
+    _cloudPulling=false;
+    return cloudPushNow();
+  }).catch(e=>{_cloudPulling=false;console.warn("cloud pull failed",e);});
+}
+function cloudPushNow(){
+  if(!cloudUser||!cloudDb)return Promise.resolve();
+  const srs=loadSRS(),daily=loadDaily();
+  return cloudDb.collection("users").doc(cloudUser.uid).set({
+    srs:srs,daily:daily,updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  },{merge:true}).then(()=>{
+    try{localStorage.setItem("hsk5_last_cloud_sync",String(Date.now()));}catch(e){}
+    syncCloudUI();
+  }).catch(e=>console.warn("cloud push failed",e));
+}
+function scheduleCloudPush(){
+  if(!cloudUser||_cloudPulling)return;
+  if(_cloudPushTimer)clearTimeout(_cloudPushTimer);
+  _cloudPushTimer=setTimeout(()=>{_cloudPushTimer=null;cloudPushNow();},2000);
+}
+function syncCloudUI(){
+  const box=document.getElementById("cloudSyncBox");if(!box)return;
+  if(!cloudEnabled()){box.innerHTML="";return;}
+  if(!cloudReady){box.innerHTML=`<div class="set-mini">☁️ กำลังเชื่อมต่อ...</div>`;return;}
+  if(!cloudUser){
+    box.innerHTML=`<div class="set-row"><span class="set-label">☁️ ซิงก์ข้ามอุปกรณ์</span><div class="dir-btns"><button class="dir-btn" onclick="cloudSignIn()">เข้าสู่ระบบด้วย Google</button></div></div>`;
+  }else{
+    let last=0;try{last=parseInt(localStorage.getItem("hsk5_last_cloud_sync")||"0",10);}catch(e){}
+    const lastTxt=last?new Date(last).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"}):"ยังไม่เคย";
+    box.innerHTML=`<div class="set-row"><span class="set-label">☁️ ${cloudUser.email||"เข้าสู่ระบบแล้ว"}</span><div class="dir-btns"><button class="dir-btn" onclick="cloudSignOut()">ออกจากระบบ</button></div></div><div class="set-mini">ซิงก์ล่าสุด: ${lastTxt} · ข้อมูลรวมจากทุกเครื่องอัตโนมัติ</div>`;
+  }
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&cloudUser)cloudPullAndMerge();});
 const vocab = [
   {zh:"预订",py:"yùdìng",th:"จอง/สำรอง",en:"reservation / to book",cat:"🗺️ ท่องเที่ยว",emoji:"📅",ex:"I'd like to make a reservation for two nights.",mem:"预 = เตรียม + 订 = ยืนยัน → 'เตรียมและยืนยัน' = จอง"},
   {zh:"行程",py:"xíngchéng",th:"กำหนดการเดินทาง",en:"itinerary",cat:"🗺️ ท่องเที่ยว",emoji:"🗓️",ex:"Please send me the full itinerary before departure.",mem:"行 = เดิน + 程 = ระยะทาง → 'เส้นทางที่จะเดิน'"},
@@ -5511,7 +5606,7 @@ const AGAIN=0,HARD=1,GOOD=2,EASY=3;
 
 /* ---------- SRS card data ---------- */
 function loadSRS(){try{return JSON.parse(localStorage.getItem("hsk5_lotus")||"{}");}catch{return{};}}
-function saveSRS(d){localStorage.setItem("hsk5_lotus",JSON.stringify(d));scheduleBackup();}
+function saveSRS(d){localStorage.setItem("hsk5_lotus",JSON.stringify(d));scheduleBackup();scheduleCloudPush();}
 /* ===== FSRS (Free Spaced Repetition Scheduler) v4.5 ===== */
 const FSRS_W=[0.4072,1.1829,3.1262,15.4722,7.2102,0.5316,1.0651,0.0234,1.616,0.1544,1.0824,1.9813,0.0953,0.2975,2.2042,0.2407,2.9466,0.5034,0.6567];
 const FSRS_DECAY=-0.5, FSRS_FACTOR=Math.pow(0.9,1/FSRS_DECAY)-1, REQ_RETENTION=0.9;
@@ -5564,7 +5659,7 @@ let settings=loadSettings();
 function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function yesterdayStr(){const d=new Date();d.setDate(d.getDate()-1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function loadDaily(){try{return Object.assign({date:todayStr(),reviewed:0,newIntroduced:0,streak:0,lastActive:""},JSON.parse(localStorage.getItem("hsk5_lotus_daily")||"{}"));}catch{return{date:todayStr(),reviewed:0,newIntroduced:0,streak:0,lastActive:""};}}
-function saveDaily(d){localStorage.setItem("hsk5_lotus_daily",JSON.stringify(d));scheduleBackup();}
+function saveDaily(d){localStorage.setItem("hsk5_lotus_daily",JSON.stringify(d));scheduleBackup();scheduleCloudPush();}
 function ensureToday(){
   const d=loadDaily();const t=todayStr();
   if(d.date!==t){d.date=t;d.reviewed=0;d.newIntroduced=0;saveDaily(d);}
@@ -5608,7 +5703,7 @@ function studyDay(d){dayFilter=d;mode="srs";document.querySelectorAll(".mode-btn
 function exitDay(){dayFilter=null;initQueue();render();}
 function listenStartWords(day){const PER=settings.newPerDay||10;const start=(day-1)*PER;const words=vocab.slice(start,start+PER);if(!words.length)return;listenSub="dict";listenQueue=words.slice().sort(()=>Math.random()-0.5);listenIdx=0;listenScore=0;listenDone=0;listenRevealed=false;listenPicked=-1;listenLastPlayed=-1;mode="listen";dayFilter=null;document.querySelectorAll(".mode-btn").forEach((b,i)=>b.classList.toggle("active",["plan","srs","list","stats","hanzi"][i]==="listen"));render();window.scrollTo({top:0,behavior:"smooth"});}
 
-function toggleSettings(){document.getElementById("settingsPanel").classList.toggle("open");syncSettingsUI();}
+function toggleSettings(){document.getElementById("settingsPanel").classList.toggle("open");syncSettingsUI();syncCloudUI();}
 function syncSettingsUI(){
   document.getElementById("newPerDayVal").textContent=settings.newPerDay;
   document.getElementById("reviewPerDayVal").textContent=settings.reviewPerDay;
@@ -6440,7 +6535,7 @@ function backupReminder(){
   else{w.style.display="none";}
 }
 
-buildCats();initQueue();render();checkStorage();
+buildCats();initQueue();render();checkStorage();cloudInit();
 bootstrapRecover().then(function(recovered){if(recovered){settings=loadSettings();initQueue();render();}backupReminder();}).catch(function(){backupReminder();});
 </script>
 <script>
