@@ -660,10 +660,17 @@ const firebaseConfig = {
   messagingSenderId: "373470364837",
   appId: "1:373470364837:web:37190b872f278b6d4ff94c"
 };
-let cloudUser=null,cloudDb=null,cloudReady=false,_cloudPushTimer=null,_cloudPulling=false;
+let cloudUser=null,cloudDb=null,cloudReady=false,cloudFailed=false,_cloudPushTimer=null,_cloudPulling=false;
 function cloudEnabled(){return !!(firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf("YOUR_")!==0);}
-function cloudInit(){
+function cloudInit(attempt){
   if(!cloudEnabled())return;
+  attempt=attempt||0;
+  if(typeof firebase==="undefined"){
+    if(attempt<10){setTimeout(()=>cloudInit(attempt+1),300);return;}
+    console.info("🪷 ซิงก์ข้ามอุปกรณ์ไม่พร้อมใช้งานตอนนี้ (โหลด Firebase ไม่สำเร็จ) — แอปยังใช้งานได้ตามปกติ, ข้อมูลบันทึกในเครื่องเหมือนเดิม");
+    cloudShowBlockedNotice();
+    return;
+  }
   try{
     firebase.initializeApp(firebaseConfig);
     cloudDb=firebase.firestore();
@@ -672,7 +679,12 @@ function cloudInit(){
       if(u)cloudPullAndMerge();
       syncCloudUI();
     });
-  }catch(e){console.warn("cloud init failed",e);}
+  }catch(e){console.info("🪷 ซิงก์ข้ามอุปกรณ์ไม่พร้อมใช้งานตอนนี้ — แอปยังใช้งานได้ตามปกติ",e.message);cloudShowBlockedNotice();}
+}
+function cloudShowBlockedNotice(){
+  cloudFailed=true;
+  const box=document.getElementById("cloudSyncBox");if(!box)return;
+  box.innerHTML=`<div class="set-mini" style="color:#a06070">☁️ เชื่อมต่อระบบซิงก์ไม่สำเร็จ — อาจเป็นเพราะตัวบล็อกโฆษณา/Content Blocker บล็อกโดเมน Firebase ลองปิดชั่วคราวหรือเปิดในหน้าต่างส่วนตัวแล้วรีเฟรชอีกครั้ง (ข้อมูลยังบันทึกในเครื่องตามปกติ)</div>`;
 }
 function cloudSignIn(){
   if(!cloudEnabled())return;
@@ -733,6 +745,7 @@ function scheduleCloudPush(){
 function syncCloudUI(){
   const box=document.getElementById("cloudSyncBox");if(!box)return;
   if(!cloudEnabled()){box.innerHTML="";return;}
+  if(cloudFailed){cloudShowBlockedNotice();return;}
   if(!cloudReady){box.innerHTML=`<div class="set-mini">☁️ กำลังเชื่อมต่อ...</div>`;return;}
   if(!cloudUser){
     box.innerHTML=`<div class="set-row"><span class="set-label">☁️ ซิงก์ข้ามอุปกรณ์</span><div class="dir-btns"><button class="dir-btn" onclick="cloudSignIn()">เข้าสู่ระบบด้วย Google</button></div></div>`;
